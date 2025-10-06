@@ -1,4 +1,5 @@
 Panomreles - The Panomreles Titan Project
+
 Panomreles Titan is a sophisticated, Python-based log analysis multitool designed to automatically identify, parse, and transform any log file into a structured and actionable intelligence package.
 
 Born from a collaborative effort between GeminoLibi and Gemini, this project turns raw, chaotic log data into clear, insightful reports. It's not just a parser; it's an intelligence platform that generates interactive dashboards, executive briefings, and thematically sorted raw data exports, enabling deep-dive analysis with unprecedented ease.
