@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parsermonious Report</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; background-color: #f8f9fa; color: #343a40; }
+        .container { max-width: 1200px; margin: auto; padding: 20px; }
+        .header { background-color: #343a40; color: white; padding: 40px; text-align: center; }
+        .header h1 { margin: 0; font-size: 2.5em; }
+        .header p { margin-top: 5px; font-size: 1.2em; color: #adb5bd; }
+        .grid-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 20px; margin-top: 20px; }
+        .card { background: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); padding: 20px; }
+        .card.full-width { grid-column: 1 / -1; }
+        .card h2 { margin-top: 0; border-bottom: 2px solid #e9ecef; padding-bottom: 10px; color: #495057;}
+        .card pre, .card ul { margin: 0; padding: 0; list-style-type: none; }
+        .card li { padding: 8px 0; border-bottom: 1px solid #f1f3f5; }
+        .card li:last-child { border-bottom: none; }
+        .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; text-align: center; }
+        .stat-item h3 { margin: 0 0 5px 0; font-size: 2em; color: #007bff; }
+        .stat-item p { margin: 0; color: #6c757d; }
+        .table-container { max-height: 400px; overflow-y: auto; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { text-align: left; padding: 12px; border-bottom: 1px solid #dee2e6; }
+        th { background-color: #f8f9fa; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Parsermonious Omega</h1>
+        <p>Analysis Report for [FILENAME]</p>
+    </div>
+    <div class="container">
+        <!-- This is a static template. The Python script will dynamically generate the content. -->
+        <div class="grid-container">
+            <div class="card">
+                <h2>Log Profile</h2>
+                <p><strong>Detected Type:</strong> [PROFILE NAME]</p>
+                <p><em>[PROFILE DESCRIPTION]</em></p>
+            </div>
+            <div class="card">
+                <h2>Overall Statistics</h2>
+                <div class="stat-grid">
+                    <div class="stat-item">
+                        <h3>[NUM]</h3>
+                        <p>Total Events</p>
+                    </div>
+                    <div class="stat-item">
+                        <h3>[NUM]</h3>
+                        <p>Errors Found</p>
+                    </div>
+                    <div class="stat-item">
+                        <h3>[NUM]</h3>
+                        <p>Events / Minute</p>
+                    </div>
+                    <div class="stat-item">
+                        <h3>[NUM]</h3>
+                        <p>Unique Public IPs</p>
+                    </div>
+                </div>
+            </div>
+            <div class="card full-width">
+                <h2>Contextual Analysis</h2>
+                <canvas id="contextChart"></canvas>
+            </div>
+            <div class="card full-width">
+                <h2>Top 10 Most Common Events</h2>
+                <canvas id="topEventsChart"></canvas>
+            </div>
+            <div class="card">
+                <h2>Top Keyword Relationships</h2>
+                <ul><li>[RELATIONSHIPS]</li></ul>
+            </div>
+            <div class="card">
+                <h2>Detected Anomalies</h2>
+                <ul><li>[ANOMALIES]</li></ul>
+            </div>
+            <div class="card full-width">
+                <h2>Timeline of Events</h2>
+                <div class="table-container">
+                    <table>
+                        <thead><tr><th>Line</th><th>Event Description</th></tr></thead>
+                        <tbody>
+                            <!-- Timeline rows will be inserted here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+        // Chart data will be dynamically injected by the Python script
+        new Chart(document.getElementById('contextChart'), {
+            type: 'pie',
+            data: {
+                labels: ['Example1', 'Example2'],
+                datasets: [{ data: [60, 40] }]
+            },
+            options: { responsive: true, plugins: { legend: { position: 'top' } } }
+        });
+        new Chart(document.getElementById('topEventsChart'), {
+            type: 'bar',
+            data: {
+                labels: ['Event A', 'Event B'],
+                datasets: [{ data: [100, 50] }]
+            },
+            options: { responsive: true, indexAxis: 'y' }
+        });
+    </script>
+</body>
+</html>
