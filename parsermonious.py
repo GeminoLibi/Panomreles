@@ -1,11 +1,46 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #
-#  Parsermonious Titan: The Grand Unifying Log Tool
-#  Version: 4.0.0
-#  Author: Gemini & Markus
+#  panomreles Titan: The Grand Unifying Log Tool
+#  Version: 1.0.0
+#  Author: Gemini & GeminoLibi
 #  Purpose: A log processing and intelligence platform that generates a full, structured analysis package.
 #
+#  --- [ How to use as a Plugin for Project Revelare ] ---
+#
+#  This script is designed to be dual-use. You can run it from the command line
+#  as a standalone tool, or you can import its `analyze` function into your
+#  own Python projects.
+#
+#  Example Usage in another Python script:
+#
+#  from panomreles import analyze
+#
+#  # Define a configuration to control the output
+#  plugin_config = {
+#      'custom_output_dir': '/path/to/revelare/analysis_cache',
+#      'generate_html_report': True,
+#      'generate_text_report': False,
+#      'generate_briefing': True,
+#      'export_raw_data': True,
+#  }
+#
+#  try:
+#      # Call the analysis engine
+#      analysis_results = analyze('path/to/logfile.log', config=plugin_config)
+#
+#      # Now you have the structured data for your own application
+#      print("Analysis complete.")
+#      print(f"Total events found: {analysis_results.get('stats', {}).get('total_events')}")
+#      if analysis_results.get('threat_intel', {}).get('watchlist_hits'):
+#          print("Threats were detected!")
+#
+#  except FileNotFoundError:
+#      print("Log file not found.")
+#  except Exception as e:
+#      print(f"An error occurred during analysis: {e}")
+#
+# -----------------------------------------------------------------------------
 
 import argparse
 import re
@@ -261,20 +296,23 @@ LOG_PROFILES = {
 }
 
 # #############################################################################
-# SECTION 2: THE PARSERMONIOUS CORE CLASS
+# SECTION 2: THE panomreles CORE CLASS
 # Orchestrates the entire analysis process.
 # #############################################################################
 
-class Parsermonious:
+class panomreles:
     """The main orchestrator for the log analysis multitool."""
 
-    def __init__(self, filepath):
+    def __init__(self, filepath, config=None):
         if not os.path.exists(filepath):
             raise FileNotFoundError(f"The file '{filepath}' was not found.")
         
         self.filepath = filepath
         self.basename = os.path.splitext(os.path.basename(filepath))[0]
-        self.output_dir = f"{self.basename}_parsermonious_results"
+        self.config = config or {}
+        
+        self.output_dir = self.config.get('custom_output_dir', f"{self.basename}_panomreles_results")
+        
         self.lines = self._load_file()
         self.total_lines = len(self.lines)
         self.profile_key, self.profile = self._detect_profile()
@@ -293,8 +331,12 @@ class Parsermonious:
     def _setup_output_directory(self):
         """Creates a clean directory structure for the analysis results."""
         if os.path.exists(self.output_dir):
-            shutil.rmtree(self.output_dir)
-        os.makedirs(self.output_dir, exist_ok=True)
+            # If a custom dir is provided, we don't want to delete it.
+            # We'll just ensure subdirectories exist.
+            pass
+        else:
+            os.makedirs(self.output_dir, exist_ok=True)
+            
         os.makedirs(os.path.join(self.output_dir, 'reports'), exist_ok=True)
         os.makedirs(os.path.join(self.output_dir, 'raw_data_exports'), exist_ok=True)
 
@@ -309,7 +351,8 @@ class Parsermonious:
                 except re.error:
                     print(f"Warning: Invalid regex in profile '{key}': {pattern}")
         
-        if not scores: return 'generic', LOG_PROFILES['generic']
+        if not scores or scores.most_common(1)[0][1] == 0:
+            return 'generic', LOG_PROFILES['generic']
         best_profile_key = scores.most_common(1)[0][0]
         return best_profile_key, LOG_PROFILES[best_profile_key]
 
@@ -330,11 +373,6 @@ class Parsermonious:
                         break
                     except json.JSONDecodeError: continue
                 
-                # Handle multi-line rules (simple version)
-                if 'multiline_start' in rule:
-                    # This would require a more stateful parser, simplified for now
-                    pass
-
                 match = re.search(rule['regex'], line)
                 if match:
                     log_entry.update(match.groupdict())
@@ -356,10 +394,11 @@ class Parsermonious:
         analyzer = LogAnalyzer(self.parsed_logs, self.profile)
         analysis_results = analyzer.run_all_analyses()
         
-        reporter = ReportGenerator(self.output_dir, self.basename, analysis_results, self.parsed_logs)
+        reporter = ReportGenerator(self.output_dir, self.basename, analysis_results, self.parsed_logs, self.config)
         reporter.generate_all_reports()
         
         print("\nAnalysis complete. Check the output directory for your intelligence package.")
+        return analysis_results
 
 # #############################################################################
 # SECTION 3: THE LOG ANALYZER CLASS
@@ -381,7 +420,6 @@ class LogAnalyzer:
 
         for log in self.logs:
             ts_str = log.get('timestamp')
-            # Special handling for combined date/time fields
             if self.profile['name'] == 'Microsoft IIS Log (W3C)' and 'date' in log and 'time' in log:
                 ts_str = f"{log['date']} {log['time']}"
             
@@ -390,11 +428,9 @@ class LogAnalyzer:
             try:
                 ts_str_clean = ts_str.split(',')[0].strip()
                 if ts_format == 'iso':
-                    # Handle different ISO 8601 variations
                     log['datetime'] = datetime.fromisoformat(ts_str_clean.replace('Z', '+00:00'))
-                elif ts_format == '%b %d %H:%M:%S': # Syslog format without year
+                elif ts_format == '%b %d %H:%M:%S':
                      ts = datetime.strptime(ts_str_clean, ts_format)
-                     # Guess the year. If the log month is "ahead" of the current month, it's probably from last year.
                      current_time = datetime.now()
                      log['datetime'] = ts.replace(year=current_time.year if ts.month <= current_time.month else current_time.year - 1)
                 else:
@@ -460,13 +496,12 @@ class LogAnalyzer:
     def _find_top_events(self, n=10):
         def templatize(log):
             msg = log.get('message', log['original_line'])
-            # Generalize common variable data
             msg = re.sub(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', 'IP_ADDR', msg)
             msg = re.sub(r'0x[0-9a-fA-F]+', 'HEX_ADDR', msg)
             msg = re.sub(r'pid=\d+', 'pid=PID', msg)
             msg = re.sub(r'\[\d+\]', '[PID]', msg)
             msg = re.sub(r'line \d+', 'line LINE_NUM', msg)
-            msg = re.sub(r'\d{5,}', 'LONG_NUM', msg) # Any long number
+            msg = re.sub(r'\d{5,}', 'LONG_NUM', msg)
             return msg
         return Counter(templatize(log) for log in self.logs).most_common(n)
 
@@ -503,10 +538,10 @@ class LogAnalyzer:
         
         mean = sum(counts) / len(counts)
         std_dev = math.sqrt(sum((x - mean) ** 2 for x in counts) / len(counts)) if len(counts) > 1 else 0
-        threshold = mean + (3 * std_dev) # Use 3 standard deviations for significance
+        threshold = mean + (3 * std_dev)
         
         for minute, count in events_per_minute.items():
-            if count > threshold and count > 10: # Avoid flagging trivial spikes
+            if count > threshold and count > 10:
                 anomaly_desc = f"High activity spike: {count} events at {minute} (mean is {mean:.1f}, threshold is {threshold:.1f})."
                 anomalies.append(anomaly_desc)
         return anomalies
@@ -548,11 +583,9 @@ class LogAnalyzer:
 
         ips = set()
         for log in self.logs:
-            # A more robust way to find IPs in any log line
             ip_str = log.get('ip', '') + log.get('src_ip', '') + log.get('dest_ip', '') + log['original_line']
             found_ips = re.findall(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', ip_str)
             for ip in found_ips:
-                # Exclude private IP ranges
                 if not (ip.startswith(('10.', '192.168.', '172.16.', '127.0.')) or ip == '0.0.0.0'):
                     ips.add(ip)
         
@@ -587,8 +620,7 @@ class LogAnalyzer:
         context = self.results.get('context', {})
         threats = self.results.get('threat_intel', {})
         
-        # Inference 1: Overall Health
-        error_rate = errors.get('count', 0) / stats.get('total_events', 1)
+        error_rate = errors.get('count', 0) / (stats.get('total_events', 1) or 1)
         if threats.get('watchlist_hits'):
             inferences.append("CRITICAL: The log contains interactions with IPs on a threat intelligence watchlist, indicating a potential security breach or targeted attack.")
         elif error_rate > 0.1:
@@ -598,20 +630,14 @@ class LogAnalyzer:
         else:
             inferences.append("GOOD HEALTH: The system appears to be operating with a low error rate, suggesting general stability.")
             
-        # Inference 2: Agent/System State
         if context.get('AGENT_METADATA', 0) > 50:
             inferences.append("The log is dominated by agent metadata, suggesting a period of idling or internal processing rather than active tool use.")
         elif context.get('GUI_INTERACTION', 0) > 50:
             inferences.append("The log shows a high degree of GUI interaction, indicating the agent was actively performing a task on a target system.")
-        elif context.get('REQUEST', 0) > 50:
-            inferences.append("The log is dominated by request/response traffic, typical of a healthy, active web server.")
-        elif context.get('AUTHENTICATION', 0) > 50:
-            inferences.append("The log activity is heavily focused on authentication events, which could be normal for a login server or indicate a brute-force attack if error rates are high.")
-
-        # Inference 3: Repetitive Behavior
+        
         top_events = self.results.get('top_events', [])
-        if top_events and top_events[0][1] > stats.get('total_events', 1) * 0.25: # If one event is > 25% of all logs
-             inferences.append(f"The event '{top_events[0][0][:50]}...' is extremely repetitive, suggesting a component might be stuck in an action loop or a specific event is flooding the logs.")
+        if top_events and top_events[0][1] > stats.get('total_events', 1) * 0.25:
+             inferences.append(f"The event '{top_events[0][0][:50]}...' is extremely repetitive, suggesting a component might be stuck in a loop or flooding the logs.")
              
         return inferences
 
@@ -622,24 +648,31 @@ class LogAnalyzer:
 class ReportGenerator:
     """Generates the full, structured output package."""
     
-    def __init__(self, output_dir, base_filename, analysis_results, parsed_logs):
+    def __init__(self, output_dir, base_filename, analysis_results, parsed_logs, config):
         self.output_dir = output_dir
         self.base_filename = base_filename
         self.results = analysis_results
         self.logs = parsed_logs
-        self.profile = LOG_PROFILES.get(self.results.get('profile_name'), LOG_PROFILES['generic']) # Fixed key
+        self.profile = LOG_PROFILES.get(self.results.get('profile_key', 'generic'), LOG_PROFILES['generic'])
+        self.config = config
 
     def generate_all_reports(self):
         """Master function to generate all output files."""
-        print("-> Exporting thematic raw data...")
-        self._export_thematic_data()
+        if self.config.get('export_raw_data', True):
+            print("-> Exporting thematic raw data...")
+            self._export_thematic_data()
         
-        print("-> Generating intelligence briefing...")
-        self._generate_briefing()
+        if self.config.get('generate_briefing', True):
+            print("-> Generating intelligence briefing...")
+            self._generate_briefing()
 
-        print("-> Generating reports...")
-        self._generate_text_report()
-        self._generate_html_report()
+        if self.config.get('generate_text_report', True):
+            print("-> Generating text report...")
+            self._generate_text_report()
+        
+        if self.config.get('generate_html_report', True):
+            print("-> Generating HTML report...")
+            self._generate_html_report()
 
     def _export_thematic_data(self):
         grouping_rules = self.profile.get('thematic_grouping', {})
@@ -670,48 +703,37 @@ class ReportGenerator:
             
             f.write("## Executive Summary\n")
             f.write(f"Analysis of **{stats.get('total_events', 0):,}** events revealed **{errors.get('count', 0)}** errors")
-            if threats.get('watchlist_hits'):
-                f.write(f", and **{len(threats['watchlist_hits'])}** threat intelligence hits. ")
-            else:
-                f.write(". ")
-            if anomalies:
-                 f.write(f"Additionally, **{len(anomalies)}** significant anomalies were detected.\n\n")
-            else:
-                 f.write("No significant anomalies were detected.\n\n")
+            if threats.get('watchlist_hits'): f.write(f", and **{len(threats['watchlist_hits'])}** threat intelligence hits. ")
+            else: f.write(". ")
+            if anomalies: f.write(f"Additionally, **{len(anomalies)}** significant anomalies were detected.\n\n")
+            else: f.write("No significant anomalies were detected.\n\n")
 
             if inferences:
                 f.write("## Key Inferences\n")
-                for inference in inferences:
-                    f.write(f"- **Conclusion:** {inference}\n")
+                for inference in inferences: f.write(f"- **Conclusion:** {inference}\n")
                 f.write("\n")
 
             if threats.get('watchlist_hits'):
                 f.write("## ❗ Threat Intelligence Hits\n")
-                f.write("| IP Address | Reason |\n")
-                f.write("|------------|--------|\n")
-                for ip, reason in threats['watchlist_hits'].items():
-                    f.write(f"| `{ip}` | {reason} |\n")
+                f.write("| IP Address | Reason |\n|------------|--------|\n")
+                for ip, reason in threats['watchlist_hits'].items(): f.write(f"| `{ip}` | {reason} |\n")
                 f.write("\n")
 
             if anomalies:
                 f.write("## 📈 Anomalies Detected\n")
-                for anom in anomalies:
-                    f.write(f"- {anom}\n")
+                for anom in anomalies: f.write(f"- {anom}\n")
                 f.write("\n")
 
             if errors.get('top_errors'):
                 f.write("## ⚙️ Top Error Messages\n")
-                for msg, count in errors['top_errors']:
-                    f.write(f"- **(x{count})** `{msg[:120]}`\n")
+                for msg, count in errors['top_errors']: f.write(f"- **(x{count})** `{msg[:120]}`\n")
                 f.write("\n")
 
             f.write("## Recommendations\n")
-            if threats.get('watchlist_hits'):
-                f.write("- **Immediate Action:** Investigate and block all IPs flagged by the threat intelligence watchlist.\n")
-            if errors.get('count', 0) > stats.get('total_events', 1) * 0.05: # If errors are > 5% of events
-                f.write("- **High Priority:** The high volume of errors suggests a potential stability issue. Review the top error messages to identify the root cause.\n")
-            if anomalies:
-                f.write("- **Investigation:** The detected activity spikes are unusual. Correlate the timestamps with known system events or user actions.\n")
+            if threats.get('watchlist_hits'): f.write("- **Immediate Action:** Investigate and block all IPs flagged by the threat intelligence watchlist.\n")
+            error_rate = errors.get('count', 0) / (stats.get('total_events', 1) or 1)
+            if error_rate > 0.05: f.write("- **High Priority:** The high volume of errors suggests a potential stability issue.\n")
+            if anomalies: f.write("- **Investigation:** The detected activity spikes are unusual. Correlate timestamps with known system events.\n")
             f.write("- **Further Analysis:** Review the full HTML report and thematic raw data exports for a deeper dive.\n")
     
     def _generate_text_report(self):
@@ -731,8 +753,7 @@ class ReportGenerator:
              if context:
                  for topic, pct in sorted(context.items(), key=lambda x: x[1], reverse=True):
                      f.write(f"- {topic.replace('_', ' ').title()}: {pct:.1f}%\n")
-             else:
-                 f.write("N/A\n")
+             else: f.write("N/A\n")
 
              errors = self.results.get('errors', {})
              f.write(f"\n---[ Error Analysis ]---\n")
@@ -750,8 +771,7 @@ class ReportGenerator:
              anomalies = self.results.get('anomalies', [])
              if anomalies:
                  for anomaly in anomalies: f.write(f"- {anomaly}\n")
-             else:
-                 f.write("No significant anomalies detected.\n")
+             else: f.write("No significant anomalies detected.\n")
 
              sessions = self.results.get('sessions', {})
              if sessions:
@@ -761,32 +781,23 @@ class ReportGenerator:
                  for s in sessions.get('top_sessions_by_events', []): f.write(f"  - ID '{s['id']}': {s['event_count']} events, {s['duration_min']:.2f} min\n")
 
              threats = self.results.get('threat_intel', {})
-             f.write("\n---[ Threat Intelligence Report ]---\n")
-             f.write(f"Status: {threats.get('status', 'N/A')}\n")
-             if threats.get('results'):
+             f.write("\n---[ Threat Intelligence Report (Mock) ]---\n")
+             f.write(f"Public IPs Scanned: {threats.get('ips_scanned', 0)}\n")
+             if threats.get('watchlist_hits'):
                  f.write("!! WATCHLIST HITS !!\n")
-                 for ip, data in threats.get('results', {}).items():
-                     f.write(f"  IP: {ip}\n")
-                     if 'virustotal' in data:
-                         vt = data['virustotal']
-                         f.write(f"    - VirusTotal: {vt.get('malicious_score', 0)}/{vt.get('total_engines', 0)} malicious | Owner: {vt.get('owner', 'N/A')}\n")
-                     if 'abuseipdb' in data:
-                         abuse = data['abuseipdb']
-                         f.write(f"    - AbuseIPDB: {abuse.get('abuse_score', 0)}% confidence | Reports: {abuse.get('total_reports', 0)}\n")
-             else:
-                 f.write("No watchlist hits found.\n")
+                 for ip, reason in threats['watchlist_hits'].items(): f.write(f"  - {ip}: {reason}\n")
+             else: f.write("No watchlist hits found.\n")
              
              cross_listing = self.results.get('cross_listing', {})
              if cross_listing.get('top_events'):
                  f.write("\n---[ Cross-Listing Analysis (Most Versatile Events) ]---\n")
                  for event in cross_listing['top_events']:
-                     f.write(f"- Line {event['line_number']} appeared in {event['categories']} categories: {event['content'][:80]}...\n")
+                     f.write(f"- Line {event['line_number']} in {event['categories']} categories: {event['content'][:80]}...\n")
 
 
     def _generate_html_report(self):
         path = os.path.join(self.output_dir, 'reports', self.base_filename + "_analysis.html")
         
-        # Prepare data for JSON embedding
         context_data = self.results.get('context', {})
         context_labels = json.dumps(list(context_data.keys()))
         context_values = json.dumps(list(context_data.values()))
@@ -796,7 +807,7 @@ class ReportGenerator:
         top_events_values = json.dumps([count for evt, count in top_events])
 
         html_template = f"""
-<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Parsermonious Report: {self.base_filename}</title>
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>panomreles Report: {self.base_filename}</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script><style>
 body{{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;margin:0;background-color:#f8f9fa;color:#343a40}}
 .container{{max-width:1400px;margin:auto;padding:20px}}.header{{background-color:#343a40;color:white;padding:40px;text-align:center}}
@@ -810,7 +821,7 @@ p.subtitle{{margin-top:5px;font-size:1.2em;color:#adb5bd}}
 table{{width:100%;border-collapse:collapse}}th,td{{text-align:left;padding:8px;border-bottom:1px solid #dee2e6}}
 th{{background-color:#f8f9fa}}
 ul{{padding-left:20px}} li{{margin-bottom:10px}}
-</style></head><body><div class="header"><h1>Parsermonious Titan Report</h1><p class="subtitle">{self.base_filename}</p></div>
+</style></head><body><div class="header"><h1>panomreles Titan Report</h1><p class="subtitle">{self.base_filename}</p></div>
 <div class="container">
 <div class="card full-width"><h2>Executive Summary</h2><p><strong>Profile:</strong> {self.results['profile_name']}</p>
 <h3>Key Inferences</h3><ul>{"".join(f"<li>{inf}</li>" for inf in self.results.get('inferences', []))}</ul></div>
@@ -845,30 +856,54 @@ new Chart(document.getElementById('contextChart'), {{ type: 'pie', data: {{ labe
 
 def display_onboarding():
     print(BANNER)
-    print("\nWelcome to Parsermonious Titan! This is your onboarding guide.\n")
+    print("\nWelcome to panomreles Titan! This is your onboarding guide.\n")
     print("======================================================================")
     print("WHAT IT IS: A log analysis platform that takes any log file, automatically")
     print("            identifies it, and generates a full intelligence package.")
     print("\nHOW TO USE:")
-    print("1. Run the script: python parsermonious.py /path/to/your/logfile.log")
-    print("2. A new folder named 'logfile_parsermonious_results' will be created.")
+    print("1. Run the script: python panomreles.py /path/to/your/logfile.log")
+    print("2. A new folder named 'logfile_panomreles_results' will be created.")
     print("3. Explore the output package inside that folder.\n")
     print("WHAT YOU GET:")
     print("  - /reports/              -> Detailed HTML dashboard and full text analysis.")
     print("  - /raw_data_exports/     -> The original log lines, split into thematic subfolders.")
     print("  - intelligence_briefing.md -> A high-level summary of the most critical findings.\n")
     print("HOW TO EXTEND (The fun part!):")
-    print("  - Open this script (`parsermonious.py`) in a text editor.")
+    print("  - Open this script (`panomreles.py`) in a text editor.")
     print("  - Find the 'LOG_PROFILES' dictionary near the top.")
     print("  - Copy an existing profile (like 'apache_access_log') and modify it for your new log type.")
     print("  - You just need to define a 'detection_pattern' and a 'parsing_rule'.")
-    print("  - Parsermonious will automatically handle the rest!")
+    print("  - panomreles will automatically handle the rest!")
     print("======================================================================")
+
+# --- New Plugin Entry Point ---
+def analyze(filepath, config=None):
+    """
+    This is the primary entry point for using panomreles as a plugin.
+    
+    Args:
+        filepath (str): The absolute path to the log file to analyze.
+        config (dict, optional): A dictionary to override default behavior.
+            'custom_output_dir': (str) Specify a different output directory.
+            'generate_html_report': (bool) Defaults to True.
+            'generate_text_report': (bool) Defaults to True.
+            'generate_briefing': (bool) Defaults to True.
+            'export_raw_data': (bool) Defaults to True.
+    
+    Returns:
+        dict: A dictionary containing the full analysis results.
+    """
+    if config is None:
+        config = {}
+    
+    titan_tool = panomreles(filepath, config=config)
+    analysis_results = titan_tool.run_full_analysis()
+    return analysis_results
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description=BANNER, 
-        epilog="Example: python parsermonious.py my_app.log",
+        epilog="Example: python panomreles.py my_app.log",
         formatter_class=argparse.RawTextHelpFormatter
     )
     parser.add_argument("logfile", nargs='?', default=None, help="Path to the log file to be analyzed.")
@@ -879,8 +914,7 @@ if __name__ == "__main__":
         display_onboarding()
     else:
         try:
-            titan_tool = Parsermonious(args.logfile)
-            titan_tool.run_full_analysis()
+            analyze(args.logfile)
         except Exception as e:
             print(f"\n--- [ CRITICAL ERROR ] ---")
             print(f"An error occurred: {e}")
